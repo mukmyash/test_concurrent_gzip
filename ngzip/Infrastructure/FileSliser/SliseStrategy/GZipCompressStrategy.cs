@@ -15,76 +15,18 @@ namespace ngzip.Infrastructure.SliseStrategy
     {
         public byte[] Slise(int partNumber, FileStream InfileStream)
         {
-            // Очень долго отрабатывает. по данным профилировщика ~6сек.... 0_0 
-            var filelength = InfileStream.Length;
+            // Достаем из заголовка MTIME информацию о длине блока
+            // при архивации мы туда спрятали эту инфу... =)
+            var lengthBuffer = new byte[8];
+            InfileStream.Read(lengthBuffer, 0, lengthBuffer.Length);
+            var blockLength = BitConverter.ToInt32(lengthBuffer, 4);
 
-            using (var partStream = new MemoryStream())
-            {
-                if (InfileStream.Position != 0)
-                    partStream.WriteByte(31);
+            // Читаем данные для последующей разорхивации.
+            var compressedData = new byte[blockLength];
+            lengthBuffer.CopyTo(compressedData, 0);
+            InfileStream.Read(compressedData, 8, blockLength - 8);
 
-                int state = 0;
-
-                while (InfileStream.Position < filelength)
-                {
-                    var readedByte = (byte)InfileStream.ReadByte();
-
-                    state = GetNewState(state, readedByte);
-                    if (state > 4)
-                    {
-                        return partStream.ToArray();
-                    }
-
-                    partStream.WriteByte(readedByte);
-                }
-
-                return partStream.ToArray();
-            }
-        }
-
-        /// <summary>
-        /// Определеят новое значение состояния. (поиск конечной последовательности байт (0 0 16 0))
-        /// </summary>
-        /// <param name="state">Значение состояния полученое на прошло байте</param>
-        /// <param name="readedByte">текущий байт</param>
-        /// <returns></returns>
-        private static int GetNewState(int state, byte readedByte)
-        {
-            switch (state)
-            {
-                case 0:
-                    if (readedByte == 0)
-                        state++;
-                    else
-                        state = 0;
-                    break;
-                case 1:
-                    if (readedByte == 0)
-                        state++;
-                    else
-                        state = 0;
-                    break;
-                case 2:
-                    if (readedByte == 16)
-                        state++;
-                    else
-                        state = 0;
-                    break;
-                case 3:
-                    if (readedByte == 0)
-                        state++;
-                    else
-                        state = 0;
-                    break;
-                case 4:
-                    if (readedByte == 31)
-                        state++;
-                    else
-                        state = 0;
-                    break;
-            }
-
-            return state;
+            return compressedData;
         }
     }
 }

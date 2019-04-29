@@ -66,6 +66,7 @@
     <Compile Include="Infrastructure\FileSliser\FileSliserBuilder.cs" />
     <Compile Include="Infrastructure\FileSliser\SliseStrategy\FixedSizeStrategy.cs" />
     <Compile Include="Infrastructure\FileSliser\SliseStrategy\GZipCompressStrategy.cs" />
+    <Compile Include="Infrastructure\FileSliser\SliseStrategy\GZipCompressStrategyTest.cs" />
     <Compile Include="Infrastructure\FileSliser\SliseStrategy\ISliseStrategy.cs" />
     <Compile Include="Infrastructure\GZIP\CompressProcess.cs" />
     <Compile Include="Infrastructure\GZIP\DecompressProcess.cs" />
