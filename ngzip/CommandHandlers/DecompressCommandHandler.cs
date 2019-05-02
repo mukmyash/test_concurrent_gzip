@@ -1,4 +1,5 @@
-﻿using ngzip.Infrastructure.FileSliser;
+﻿using ngzip.Infrastructure;
+using ngzip.Infrastructure.FileSliser;
 using ngzip.Infrastructure.GZIP;
 using System;
 using System.Collections.Generic;
@@ -13,13 +14,13 @@ namespace ngzip
 {
     public class DecompressCommandHandler : CommandHandlerBase
     {
-        public void Handle(DecompressCommand command)
+        public void Handle(DecompressCommand command, ThreadCancelationToken token)
         {
             var fileSliser = new FileSliserBuilder(command.InputFileInfo.FullName)
                 .UseGZIPCompressStrategy()
                 .Build();
             var gzipProcess = new DecompressProcess();
-            base.HandleBase(command, fileSliser, gzipProcess);
+            base.HandleBase(command, fileSliser, gzipProcess, token);
         }
 
     }

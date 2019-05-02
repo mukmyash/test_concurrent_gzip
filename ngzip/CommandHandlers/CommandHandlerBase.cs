@@ -13,15 +13,15 @@ namespace ngzip
 {
     public abstract class CommandHandlerBase
     {
-        protected void HandleBase(IGZipCommand command, FileSliser fileSlicer, IGZipProcess gzipProcess)
+        protected void HandleBase(IGZipCommand command, FileSliser fileSlicer, IGZipProcess gzipProcess, ThreadCancelationToken token)
         {
-            var mergePartition = StartMergeThread(command.OutputFileInfo.FullName);
+            var mergePartition = StartMergeThread(command.OutputFileInfo.FullName, token);
 
             List<Thread> threadPool = new List<Thread>(5);
             for (var i = 0; i < 6; i++)
-                threadPool.Add(StartGzipProcess(gzipProcess));
+                threadPool.Add(StartGzipProcess(gzipProcess, token));
 
-            SliseFile(fileSlicer);
+            SliseFile(fileSlicer, token);
 
             var partSequince = FilePartSequince.GetInstance();
             foreach (var gzipThread in threadPool)
@@ -31,23 +31,35 @@ namespace ngzip
             mergePartition.Join();
         }
 
-        private Thread StartGzipProcess(IGZipProcess gzipProcess)
+        private Thread StartGzipProcess(IGZipProcess gzipProcess, ThreadCancelationToken token)
         {
             Thread gzipThread = new Thread(param =>
             {
+                var cancelToken = param as ThreadCancelationToken;
+
                 var partCollection = FilePartCollection.GetInstance();
                 var partSequince = FilePartSequince.GetInstance();
 
                 foreach (var partInfo in partCollection.GetFilePart())
                 {
-                    using (var partFileStream = new MemoryStream(partInfo.content))
+                    if (cancelToken.IsCancel)
+                        break;
+
+                    try
                     {
-                        var gzipPath = gzipProcess.Process(partInfo.partNumber, partFileStream);
-                        partSequince.AppendPartInfo(partInfo.partNumber, gzipPath);
+                        using (var partFileStream = new MemoryStream(partInfo.content))
+                        {
+                            var gzipPath = gzipProcess.Process(partInfo.partNumber, partFileStream);
+                            partSequince.AppendPartInfo(partInfo.partNumber, gzipPath);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        cancelToken.Cancel(e);
                     }
                 }
             });
-            gzipThread.Start();
+            gzipThread.Start(token);
             return gzipThread;
         }
 
@@ -55,15 +67,27 @@ namespace ngzip
         /// Режем входящий файл.
         /// </summary>
         /// <param name="fileSlicer">Резак...</param>
-        private void SliseFile(FileSliser fileSlicer)
+        private void SliseFile(FileSliser fileSlicer, ThreadCancelationToken token)
         {
             int partNumber = 0;
             var partCollection = FilePartCollection.GetInstance();
-            foreach (var partFilePath in fileSlicer.SliseFile())
+            try
             {
-                partCollection.AppendPartInfo(partNumber++, partFilePath);
+                foreach (var partFilePath in fileSlicer.SliseFile())
+                {
+                    if (token.IsCancel)
+                        break;
+                    partCollection.AppendPartInfo(partNumber++, partFilePath);
+                }
+
+                // эта конструкция должна находиться здесь, для того что бы все остальные потоки прочухали 
+                // что что-то не так и откатили изменения.
+                partCollection.End();
             }
-            partCollection.End();
+            catch (Exception e)
+            {
+                token.Cancel(e);
+            }
         }
 
         /// <summary>
@@ -71,13 +95,15 @@ namespace ngzip
         /// </summary>
         /// <param name="outFilePath">путь в выходной файл</param>
         /// <returns></returns>
-        private Thread StartMergeThread(string outFilePath)
+        private Thread StartMergeThread(string outFilePath, ThreadCancelationToken tokent)
         {
             Thread mergePartition = new Thread(param =>
             {
-                new PartitionMerge().Merge((string)param);
+                (string filePath, ThreadCancelationToken cancelToken)? castParam = param as (string filePath, ThreadCancelationToken cancelToken)?;
+                new PartitionMerge().Merge(castParam.Value.filePath, castParam.Value.cancelToken);
             });
-            mergePartition.Start(outFilePath);
+            var threadParam = (filePath: outFilePath, cancelToken: tokent);
+            mergePartition.Start(threadParam);
             return mergePartition;
         }
     }
